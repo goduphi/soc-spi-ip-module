@@ -4,7 +4,7 @@
 module spi
 (
 	clk, reset, address, byteenable, chipselect, writedata, readdata, write, read,
-	tx, rx, clk_out, baud_out, cs_0, cs_1, cs_2, cs_3
+	tx, rx, clk_out, baud_out, cs_0, cs_1, cs_2, cs_3, LEDR
 );
 	
 	// Clock, reset
@@ -21,6 +21,8 @@ module spi
 	output reg tx, clk_out, baud_out, cs_0, cs_1, cs_2, cs_3;
 	input rx;
 	
+	output wire [9:0] LEDR;
+	
 	// Register list
 	parameter DATA_REG 		= 2'b00;
 	parameter STATUS_REG 	= 2'b01;
@@ -28,8 +30,6 @@ module spi
 	parameter BRD_REG			= 2'b11;
 	
 	// Internal registers
-	// RX Fifo Overflow, Full, Empty; TX Fifo Overflow, Full, Empty
-	reg txfe, txff, txfo, rxfe, rxff, rxfo;
 	reg [31:0] control;
 	reg [31:0] brd;
 	reg [31:0] clear_status_flag_request;
@@ -38,17 +38,23 @@ module spi
 	// Only output the clock of the baud rate generator if bit 15 of the control register is set
 	assign enable = (control & 32'h00008000) ? 1'b1 : 1'b0;
 	
+	reg [M - 1:0] fifo_data_out, data_in;
+	
 	// Read block
 	always @ (*)
 	begin
 		if(read && chipselect)
 			case(address)
+				DATA_REG:
+					readdata = fifo_data_out;
 				STATUS_REG:
-					readdata = { 26'b0, txfe, txff, txfo, rxfe, rxff, rxfo };
+					// rp and wp are the read and write pointers
+					// These are only here for the purposes of debugging
+					readdata = { rp[3:0], wp[3:0], 2'b00, txfe, txff, txfo, rxfe, rxff, rxfo };
 				CONTROL_REG:
 					readdata = control;
 				BRD_REG:
-					readdata = debug_reg;
+					readdata = brd;
 			endcase
 		else
 			readdata = 32'b0;
@@ -68,15 +74,15 @@ module spi
                 if (write && chipselect)
                 begin
                     case (address)
-                        CONTROL_REG:
-									control <= writedata;
-                        BRD_REG: 
-                           brd <= writedata;
 								// The status reg has 2 bits which are w1c
 								// The idea is to set the clear flag for one clock
 								// Then clear out the request
 								STATUS_REG:
 									clear_status_flag_request <= writedata;
+                        CONTROL_REG:
+									control <= writedata;
+                        BRD_REG: 
+                           brd <= writedata;
                     endcase
                 end
 					 else
@@ -98,29 +104,29 @@ module spi
 	*/
 	
 	// One pulse generation Block
-	wire one_pulse_write_output;
+	wire one_pulse_write_output, one_pulse_read_output;
 	
-	edge_detect write_pos_edge_detect(
-												.clk(clk),
-												.reset(reset),
-												.signal_in(write),
-												.pulse_out(one_pulse_write_output)
-												);
+	edge_detect write_pos_edge_detect
+	(
+		.clk(clk),
+		.reset(reset),
+		.signal_in(write),
+		.pulse_out(one_pulse_write_output)
+	);
 	
-	always @ (posedge one_pulse_write_output)
-	begin
-		if(chipselect && (address == DATA_REG))
-			debug_reg <= debug_reg + 32'b1;
-	end
+	edge_detect read_pos_edge_detect
+	(
+		.clk(clk),
+		.reset(reset),
+		.signal_in(read),
+		.pulse_out(one_pulse_read_output)
+	);
 	
-	// TXFO, RXFO Debug
-	always @ (posedge clk)
-	begin
-		txff <= control[24];
-	end
+	// RX Fifo Overflow, Full, Empty; TX Fifo Overflow, Full, Empty
+	wire txfe, txff, rxfe, rxff;
+	reg txfo, rxfo;
 	
-	// TXFO block
-	// This connects to the TX FIFO
+	// TX Fifo Overflow Block
 	always @ (posedge clk)
 	begin
 		if(reset)
@@ -128,6 +134,7 @@ module spi
 		// Bit 3 represents txfo w1c
 		else if(clear_status_flag_request[3])
 			txfo <= 1'b0;
+		else
 		begin
 			if(write && chipselect)
 			begin
@@ -137,6 +144,45 @@ module spi
 					txfo <= 1'b1;
 				// If none of the above conditions are true, don't change
 				// the value of the overflow flag.
+			end
+		end
+	end
+	
+	// Fifo Block
+	parameter M = 32;
+	parameter N = 16;
+	
+	reg [M - 1:0] buffer [N - 1:0];
+	reg [$clog2(N) - 1:0] rp, wp;
+	reg [$clog2(N):0] pd;
+	
+	assign txfe = (pd == 1'b0) ? 1'b1 : 1'b0;
+	assign txff = (pd == N) ? 1'b1 : 1'b0;
+	
+	assign LEDR[3:0] = wp;
+	assign LEDR[7:4] = rp;
+	
+	always @ (posedge clk)
+	begin
+		if(reset)
+		begin
+			rp <= 0;
+			wp <= 0;
+			pd <= 0;
+		end
+		else
+		begin
+			if(chipselect && one_pulse_read_output && !txfe && (address == DATA_REG))
+			begin
+				fifo_data_out <= buffer[rp];
+				rp <= rp + 1'b1;
+				pd <= pd - 1'b1;
+			end
+			else if(chipselect && one_pulse_write_output && !txff && (address == DATA_REG))
+			begin
+				buffer[wp] <= writedata;
+				wp <= wp + 1'b1;
+				pd <= pd + 1'b1;
 			end
 		end
 	end
