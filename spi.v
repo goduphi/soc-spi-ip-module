@@ -33,12 +33,9 @@ module spi
 	reg [31:0] control;
 	reg [31:0] brd;
 	reg [31:0] clear_status_flag_request;
-	reg [31:0] debug_reg;
 	
 	// Only output the clock of the baud rate generator if bit 15 of the control register is set
 	assign enable = (control & 32'h00008000) ? 1'b1 : 1'b0;
-	
-	reg [M - 1:0] fifo_data_out, data_in;
 	
 	// Read block
 	always @ (*)
@@ -46,11 +43,11 @@ module spi
 		if(read && chipselect)
 			case(address)
 				DATA_REG:
-					readdata = fifo_data_out;
+					readdata = tx_fifo_data_out;
 				STATUS_REG:
 					// rp and wp are the read and write pointers
 					// These are only here for the purposes of debugging
-					readdata = { rp[3:0], wp[3:0], 2'b00, txfe, txff, txfo, rxfe, rxff, rxfo };
+					readdata = { rp, wp, 2'b00, txfe, txff, txfo, rxfe, rxff, rxfo };
 				CONTROL_REG:
 					readdata = control;
 				BRD_REG:
@@ -123,70 +120,108 @@ module spi
 	);
 	
 	// RX Fifo Overflow, Full, Empty; TX Fifo Overflow, Full, Empty
-	wire txfe, txff, rxfe, rxff;
-	reg txfo, rxfo;
+	wire txfe, txff, txfo, rxfe, rxff, rxfo;
+	wire [31:0] tx_fifo_data_out;
+	wire [3:0] rp, wp;
 	
-	// TX Fifo Overflow Block
-	always @ (posedge clk)
-	begin
-		if(reset)
-			txfo <= 1'b0;
-		// Bit 3 represents txfo w1c
-		else if(clear_status_flag_request[3])
-			txfo <= 1'b0;
-		else
-		begin
-			if(write && chipselect)
-			begin
-				// If the FIFO is full, and we are writing to the FIFO (Data Reg)
-				// and if the overflow is not set, write a 1 to it.
-				if(txff && !txfo && address == DATA_REG)
-					txfo <= 1'b1;
-				// If none of the above conditions are true, don't change
-				// the value of the overflow flag.
-			end
-		end
-	end
-	
-	// Fifo Block
-	parameter M = 32;
-	parameter N = 16;
-	
-	reg [M - 1:0] buffer [N - 1:0];
-	reg [$clog2(N) - 1:0] rp, wp;
-	reg [$clog2(N):0] pd;
-	
-	assign txfe = (pd == 1'b0) ? 1'b1 : 1'b0;
-	assign txff = (pd == N) ? 1'b1 : 1'b0;
-	
+	// Debug outputs
 	assign LEDR[3:0] = wp;
 	assign LEDR[7:4] = rp;
+
+	fifo #(.N(16), .M(32)) tx_fifo
+	(
+		.data_out(tx_fifo_data_out),
+		.fe(txfe),
+		.ff(txff),
+		.fo(txfo),
+		.data_in(writedata),
+		.clk(clk),
+		.reset(reset),
+		.chipselect(chipselect),
+		.read(serializer_read_pulse),
+		.write(one_pulse_write_output && (address == DATA_REG)),
+		.ov_clear(clear_status_flag_request[3]),
+		.rp_debug_out(rp),
+		.wp_debug_out(wp)
+	);
 	
+	// Serializer
+	parameter IDLE    = 2'b00;
+	parameter TX_RX   = 2'b01;
+	parameter CS_AUTO = 2'b10;
+	
+	// Set serializer to an initial known value
+	reg [1:0] serializer_state = IDLE;
+	
+	// If in manual CS mode, the SPI Chipselect is going to be
+	// controlled by CSy_Enable. For now, let's just assume that
+	// we have only 1 chipselect.
+	
+	assign cs_auto = control[5];
+	
+	// Controls chipselect
 	always @ (posedge clk)
+		if(reset)
+			cs_0 <= 1'b0;
+		else
+			cs_0 <= control[9];
+			
+	// Counter block
+	wire load, decrement;
+	wire [4:0] load_value;
+	reg  [4:0] bcount;
+	
+	always @ (posedge baud_out)
+		if(reset)
+			bcount <= 0;
+		else
+			if(load)
+				bcount <= load_value;
+			else if(decrement)
+				bcount <= bcount - 1'b1;
+	
+	// Controls the serializer state
+	always @ (posedge baud_out)
 	begin
+		/*
 		if(reset)
 		begin
-			rp <= 0;
-			wp <= 0;
-			pd <= 0;
+			serializer_state <= IDLE;
 		end
 		else
+		*/
 		begin
-			if(chipselect && one_pulse_read_output && !txfe && (address == DATA_REG))
+			// The empty flag causes the serializer to begin transmission
+			if(txfe || bcount == 0)
 			begin
-				fifo_data_out <= buffer[rp];
-				rp <= rp + 1'b1;
-				pd <= pd - 1'b1;
+				serializer_state <= IDLE;
 			end
-			else if(chipselect && one_pulse_write_output && !txff && (address == DATA_REG))
+			else if(!txfe && !cs_auto)
 			begin
-				buffer[wp] <= writedata;
-				wp <= wp + 1'b1;
-				pd <= pd + 1'b1;
+				serializer_state <= TX_RX;
 			end
 		end
 	end
 	
+	assign load_value = control[4:0];
+	assign load = (serializer_state == IDLE);
+	assign decrement = (serializer_state == TX_RX && ~baud_out);
+	assign serializer_read_pulse = (serializer_state == TX_RX && bcount == 0);
+	
+	// Debug
+	reg [1:0] tmp;
+	always @ (serializer_read_pulse)
+		if(serializer_read_pulse)
+			tmp <= serializer_state;
+			
+	assign LEDR[9:8] = tmp;
+	
+	always @ (posedge baud_out)
+	begin
+		if(serializer_state == TX_RX && bcount > 0)
+			tx <= tx_fifo_data_out[bcount];
+	end
+
 	// Baud rate generator
 	reg [31:0] count;
 	reg [31:0] match;
