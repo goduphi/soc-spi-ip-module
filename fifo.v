@@ -58,10 +58,11 @@ module fifo #(parameter N = 16, parameter M = 32)
 		begin
 			if(chipselect && read && !fe)
 			begin
+				// data_out <= buffer[rp];
 				rp <= rp + 1'b1;
 				pd <= pd - 1'b1;
 			end
-			else if(chipselect && write && !ff)
+		else if(chipselect && write && !ff && !ov)
 			begin
 				buffer[wp] <= data_in;
 				wp <= wp + 1'b1;
