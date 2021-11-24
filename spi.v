@@ -18,7 +18,8 @@ module spi
 	output reg [31:0] readdata;
 	
 	// SPI Interface
-	output reg tx, clk_out, baud_out, cs_0, cs_1, cs_2, cs_3;
+	output reg tx, clk_out, baud_out, cs_0, cs_2, cs_3;
+	output wire cs_1;
 	input rx;
 	
 	output wire [9:0] LEDR;
@@ -108,7 +109,8 @@ module spi
 		.clk(clk),
 		.reset(reset),
 		.signal_in(write),
-		.pulse_out(one_pulse_write_output)
+		.pulse_out(one_pulse_write_output),
+		.positive_edge(1'b1)
 	);
 	
 	edge_detect read_pos_edge_detect
@@ -116,7 +118,8 @@ module spi
 		.clk(clk),
 		.reset(reset),
 		.signal_in(read),
-		.pulse_out(one_pulse_read_output)
+		.pulse_out(one_pulse_read_output),
+		.positive_edge(1'b1)
 	);
 	
 	// RX Fifo Overflow, Full, Empty; TX Fifo Overflow, Full, Empty
@@ -146,9 +149,9 @@ module spi
 	);
 	
 	// Serializer
-	parameter IDLE    = 2'b00;
-	parameter TX_RX   = 2'b01;
-	parameter CS_AUTO = 2'b10;
+	parameter IDLE    	= 2'b00;
+	parameter TX_RX   	= 2'b01;
+	parameter CS_ASSERT 	= 2'b10;
 	
 	reg [1:0] serializer_state;
 	
@@ -158,7 +161,7 @@ module spi
 	// If in manual CS mode, the SPI Chipselect is going to be
 	// controlled by CSy_Enable. For now, let's just assume that
 	// we have only 1 chipselect.
-	assign cs_auto = 1'b0;
+	assign cs_auto = control[5];
 	
 	// Controls chipselect
 	// Debug
@@ -167,7 +170,8 @@ module spi
 			cs_0 <= 1'b0;
 		else
 			cs_0 <= control[9];
-			
+	
+	/*
 	// Counter block
 	// Debug
 	wire load, decrement;
@@ -182,6 +186,30 @@ module spi
 				bcount <= load_value + 1'b1;
 			else if(decrement)
 				bcount <= bcount - 1'b1;
+	*/
+	
+	wire [5:0] bcount;
+	
+	counter serializer_counter
+	(
+		.clk(clk),
+		.reset(reset),
+		.load(load),
+		.decrement(decrement),
+		.load_value(control[4:0]),
+		.bcount(bcount)
+	);
+	
+	wire baud_out_negative_edge;
+	
+	edge_detect baud_negative_edge
+	(
+		.clk(clk),
+		.reset(reset),
+		.signal_in(baud_out),
+		.pulse_out(baud_out_negative_edge),
+		.positive_edge(1'b0)
+	);
 	
 	// Controls the serializer state
 	always @ (posedge clk)
@@ -194,38 +222,17 @@ module spi
 		begin
 			// The empty flag causes the serializer to begin transmission
 			if(txfe || bcount == 0)
-			begin
 				serializer_state <= IDLE;
-			end
 			else if(!txfe && !cs_auto)
 				serializer_state <= TX_RX;
 		end
 	end
 	
-	// Negative edge detect
-	reg old;
-	always @ (posedge clk)
-	begin
-		if(reset)
-			old <= 1'b0;
-		else
-			old <= baud_out;
-	end
-			
-	assign t = old & ~baud_out;
-	
-	assign load_value = control[4:0];
 	assign load = (serializer_state == IDLE);
-	assign decrement = (serializer_state == TX_RX && t);
+	assign decrement = (serializer_state == TX_RX && baud_out_negative_edge);
 	// The bcount should be compared against 0 because we want to go to the next
 	// read value after the last bit from the data word is sent
 	assign serializer_read_pulse = (serializer_state == TX_RX && bcount == 0);
-	
-	always @ (posedge clk)
-		if(reset)
-			cs_1 = 1'b0;
-		else
-			cs_1 = serializer_read_pulse;
 	
 	// This block will not run until the baud rate generator is enabled
 	always @ (posedge baud_out)

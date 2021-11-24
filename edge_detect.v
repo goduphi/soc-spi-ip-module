@@ -1,6 +1,7 @@
+// Detects either a positive or negative edge
 module edge_detect
 (
-	input clk, reset, signal_in,
+	input clk, reset, signal_in, positive_edge,
 	output wire pulse_out
 );
 	// One pulse generation Block
@@ -16,6 +17,6 @@ module edge_detect
 			old_signal_in <= signal_in;
 	end
 	
-	assign pulse_out = signal_in & ~old_signal_in;
+	assign pulse_out = (positive_edge) ? signal_in & ~old_signal_in : ~signal_in & old_signal_in;
 	
 endmodule
