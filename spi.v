@@ -167,9 +167,20 @@ module spi
 	// Debug
 	always @ (posedge clk)
 		if(reset)
-			cs_0 <= 1'b0;
+			// By default, CS idle's high.
+			cs_0 <= 1'b1;
 		else
-			cs_0 <= control[9];
+			// This state is only entered when CS is auto as defined by the state machine.
+			// Pull CS Low by going into the CS Assert state.
+			if(serializer_state == CS_ASSERT)
+				cs_0 <= 1'b0;
+			// If CS is auto and we are in the TX_RX state and bcount is 0, pull CS High.
+			// This ensures CS is pull high as soon as we go back to the IDLE state.
+			else if(cs_auto && serializer_state == TX_RX && bcount == 0)
+				cs_0 <= 1'b1;
+			// Otherwise, CS is control by the user.
+			else if(!cs_auto)
+				cs_0 <= control[9];
 	
 	/*
 	// Counter block
@@ -223,6 +234,13 @@ module spi
 			// The empty flag causes the serializer to begin transmission
 			if(txfe || bcount == 0)
 				serializer_state <= IDLE;
+			// If CS Auto is selected, if in IDLE, go to the Assert state.
+			// If in assert, go to the TX_RX state
+			else if(!txfe && cs_auto)
+				if(serializer_state == IDLE)
+					serializer_state <= CS_ASSERT;
+				else
+					serializer_state <= TX_RX;
 			else if(!txfe && !cs_auto)
 				serializer_state <= TX_RX;
 		end
@@ -241,13 +259,14 @@ module spi
 			tx <= tx_fifo_data_out[bcount - 1'b1];
 	end
 
+	// The baud_out always has to idle either high or low
 	// Baud rate generator
 	reg [31:0] count;
 	reg [31:0] match;
 	
 	always @ (posedge clk)
 	begin
-		if(reset || !enable)
+		if(reset || !enable || cs_0)
 		begin
 			clk_out <= 1'b0;
 			baud_out <= 1'b0;
