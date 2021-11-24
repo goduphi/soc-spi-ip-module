@@ -40,22 +40,25 @@ int main(int argc, char* argv[])
 			printf("Value at offset %hhu = 0x%x\n", offset, spiReadData());
 		else
 			printf("Value at offset %hhu = 0x%x\n", offset, spiReadRegister(offset));
-	if(argv[1][0] == 'w')
+
+	if(argv[1][0] == 'w' && argc == 5)
 	{
-		if(argv[2][0] == 's')
+		if(strcmp(argv[2], "led") == 0 && strcmp(argv[3], "auto_cs") == 0)
 		{
-			/*uint32_t data = strtol(argv[3], NULL, 16);
-			uint32_t wordSize = (argc == 5) ? strtol(argv[4], NULL, 10) : 7;*/
+			// Set a baud rate of 5 MHz
 			spiWriteRegister(OFS_BRD, 640);
 			spiWriteRegister(OFS_CONTROL, 0x20 | 23);
 			enableSpi();
+			// Make all the pins outputs
 			spiWriteData(0x400000);
 			while(!(spiReadRegister(OFS_STATUS) & 0x20));
-			if(argv[3][0] == 'f')
+			// Write to the data register
+			if(strcmp(argv[4], "off") == 0)
 				spiWriteData(0x400900);
-			else
+			else if(strcmp(argv[4], "on") == 0)
 				spiWriteData(0x4009ff);
 			while(!(spiReadRegister(OFS_STATUS) & 0x20));
+			enableCS();
 			disableSpi();
 		}
 		else if(offset == OFS_DATA)	
