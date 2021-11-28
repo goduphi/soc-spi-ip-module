@@ -10,7 +10,7 @@ uint32_t* base = NULL;
 
 // Subroutines
 
-bool initSpi()
+bool openSpi()
 {
 	// Open /dev/mem
 	int file = open("/dev/mem", O_RDWR | O_SYNC);
@@ -52,22 +52,24 @@ uint32_t spiReadData()
 
 void enableCS()
 {
-	*(base + OFS_CONTROL) |= 0x200;
+	uint32_t cs = spiReadRegister(OFS_CONTROL);
+	spiWriteRegister(OFS_CONTROL, cs | 0x200);
 }
 
 void disableCS()
 {
-	*(base + OFS_CONTROL) &= ~0x200;
+	uint32_t cs = spiReadRegister(OFS_CONTROL);
+	spiWriteRegister(OFS_CONTROL, cs & ~0x200);
 }
 
 void enableSpi()
 {
-	*(base + OFS_CONTROL) |= 0x8000;
+	*(base + OFS_CONTROL) |= 0x00008000;
 }
 
 void disableSpi()
 {
-	*(base + OFS_CONTROL) &= ~0x8000;
+	*(base + OFS_CONTROL) &= ~0x00008000;
 } 
 
 // The cycle is fixed to 50 MHz

@@ -27,7 +27,7 @@ int main(int argc, char* argv[])
 		return EXIT_FAILURE;
 	} 
 
-	if(!initSpi())
+	if(!openSpi())
 	{
 		printf("Error opening /dev/mem for SPI IP module @0x%8x\n", LW_BRIDGE_BASE, SPI_BASE_OFFSET);
 		return EXIT_FAILURE;
@@ -41,27 +41,9 @@ int main(int argc, char* argv[])
 		else
 			printf("Value at offset %hhu = 0x%x\n", offset, spiReadRegister(offset));
 
-	if(argv[1][0] == 'w' && argc == 5)
+	if(argv[1][0] == 'w')
 	{
-		if(strcmp(argv[2], "led") == 0 && strcmp(argv[3], "auto_cs") == 0)
-		{
-			// Set a baud rate of 5 MHz
-			spiWriteRegister(OFS_BRD, 640);
-			spiWriteRegister(OFS_CONTROL, 0x20 | 23);
-			enableSpi();
-			// Make all the pins outputs
-			spiWriteData(0x400000);
-			while(!(spiReadRegister(OFS_STATUS) & 0x20));
-			// Write to the data register
-			if(strcmp(argv[4], "off") == 0)
-				spiWriteData(0x400900);
-			else if(strcmp(argv[4], "on") == 0)
-				spiWriteData(0x4009ff);
-			while(!(spiReadRegister(OFS_STATUS) & 0x20));
-			enableCS();
-			disableSpi();
-		}
-		else if(offset == OFS_DATA)	
+		if(offset == OFS_DATA)	
 			spiWriteData(strtol(argv[3], NULL, 16));
 		else
 			spiWriteRegister(offset, atoi(argv[3]));

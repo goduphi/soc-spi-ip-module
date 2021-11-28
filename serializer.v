@@ -1,6 +1,6 @@
 module serializer
 (
-	input clk, reset,
+	input clk, reset, enable,
 	input [31:0] control
 );
 

@@ -48,7 +48,7 @@ module spi
 				STATUS_REG:
 					// rp and wp are the read and write pointers
 					// These are only here for the purposes of debugging
-					readdata = { serializer_state, rp, wp, 2'b00, txfe, txff, txfo, rxfe, rxff, rxfo };
+					readdata = { bcount, rp, wp, 2'b00, txfe, txff, txfo, rxfe, rxff, rxfo };
 				CONTROL_REG:
 					readdata = control;
 				BRD_REG:
@@ -164,40 +164,28 @@ module spi
 	assign cs_auto = control[5];
 	
 	// Controls chipselect
-	// Debug
+	// Initialization steps
+	// 1. Write 1 to bit 9 of the control register
+	// 2. Enable the tx/rx/brd by setting bit 15
 	always @ (posedge clk)
-		if(reset)
-			// By default, CS idle's high.
+		if(reset || !enable)
+			// By default, when the tx/rx/brd is not enabled, CS idle's high.
 			cs_0 <= 1'b1;
-		else
 			// This state is only entered when CS is auto as defined by the state machine.
 			// Pull CS Low by going into the CS Assert state.
-			if(serializer_state == CS_ASSERT)
-				cs_0 <= 1'b0;
-			// If CS is auto and we are in the TX_RX state and bcount is 0, pull CS High.
-			// This ensures CS is pull high as soon as we go back to the IDLE state.
-			else if(cs_auto && serializer_state == TX_RX && bcount == 0)
-				cs_0 <= 1'b1;
-			// Otherwise, CS is control by the user.
-			else if(!cs_auto)
-				cs_0 <= control[9];
-	
-	/*
-	// Counter block
-	// Debug
-	wire load, decrement;
-	wire [4:0] load_value;
-	reg  [5:0] bcount;
-	
-	always @ (posedge clk)
-		if(reset)
-			bcount <= 0;
 		else
-			if(load)
-				bcount <= load_value + 1'b1;
-			else if(decrement)
-				bcount <= bcount - 1'b1;
-	*/
+			if(cs_auto)
+			begin
+				if(serializer_state == CS_ASSERT)
+					cs_0 <= 1'b0;
+				// If CS is auto and we are in the TX_RX state and bcount is 0, pull CS High.
+				// This ensures CS is pull high as soon as we go back to the IDLE state.
+				else if(serializer_state == TX_RX && bcount == 0)
+					cs_0 <= 1'b1;
+			end
+			// Otherwise, CS is controlled by the user.
+			else
+				cs_0 <= control[9];
 	
 	wire [5:0] bcount;
 	
@@ -222,6 +210,8 @@ module spi
 		.positive_edge(1'b0)
 	);
 	
+	assign cs = cs_0;
+	
 	// Controls the serializer state
 	always @ (posedge clk)
 	begin
@@ -237,26 +227,30 @@ module spi
 			// If CS Auto is selected, if in IDLE, go to the Assert state.
 			// If in assert, go to the TX_RX state
 			else if(!txfe && cs_auto)
+			begin
 				if(serializer_state == IDLE)
 					serializer_state <= CS_ASSERT;
 				else
 					serializer_state <= TX_RX;
+			end
 			else if(!txfe && !cs_auto)
 				serializer_state <= TX_RX;
 		end
 	end
 	
 	assign load = (serializer_state == IDLE);
-	assign decrement = (serializer_state == TX_RX && baud_out_negative_edge);
+	assign decrement = ((serializer_state == TX_RX) && baud_out_negative_edge);
 	// The bcount should be compared against 0 because we want to go to the next
 	// read value after the last bit from the data word is sent
-	assign serializer_read_pulse = (serializer_state == TX_RX && bcount == 0);
+	assign serializer_read_pulse = ((serializer_state == TX_RX) && bcount == 0);
 	
 	// This block will not run until the baud rate generator is enabled
 	always @ (posedge baud_out)
 	begin
 		if(serializer_state == TX_RX && bcount > 0)
 			tx <= tx_fifo_data_out[bcount - 1'b1];
+		else
+			tx <= 1'b0;
 	end
 
 	// The baud_out always has to idle either high or low
@@ -266,7 +260,7 @@ module spi
 	
 	always @ (posedge clk)
 	begin
-		if(reset || !enable || cs_0)
+		if(reset || !enable || (serializer_state == IDLE))
 		begin
 			clk_out <= 1'b0;
 			baud_out <= 1'b0;
