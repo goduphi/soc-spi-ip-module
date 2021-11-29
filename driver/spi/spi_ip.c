@@ -50,16 +50,20 @@ uint32_t spiReadData()
 	return *(base + OFS_DATA);
 }
 
-void enableCS()
+void enableCS(uint8_t n)
 {
+	if(n > 3)
+		return;
 	uint32_t cs = spiReadRegister(OFS_CONTROL);
-	spiWriteRegister(OFS_CONTROL, cs | 0x200);
+	spiWriteRegister(OFS_CONTROL, cs | (0x200 << n));
 }
 
-void disableCS()
+void disableCS(uint8_t n)
 {
+	if(n > 3)
+		return;
 	uint32_t cs = spiReadRegister(OFS_CONTROL);
-	spiWriteRegister(OFS_CONTROL, cs & ~0x200);
+	spiWriteRegister(OFS_CONTROL, cs & ~(0x200 << n));
 }
 
 void enableSpi()

@@ -14,7 +14,12 @@ void initSpi(uint32_t control)
 	spiWriteRegister(OFS_BRD, 640);
 	spiWriteRegister(OFS_CONTROL, control);
 	if (!(CS_AUTO & control))
-		enableCS();
+	{
+		enableCS(0);
+		enableCS(1);
+		enableCS(2);
+		enableCS(3);
+	}
 	enableSpi();
 }
 
@@ -32,10 +37,10 @@ void writeRegisterMcp23s08CsMan(uint8_t address, uint8_t data)
 	uint32_t tmp = MCP23S08_ADDRESS;
 	tmp = (tmp << 8) | address;
 	tmp = (tmp << 8) | data;
-	disableCS();
+	disableCS(0);
 	spiWriteData(tmp);
 	while (!(spiReadRegister(OFS_STATUS) & 0x20));
-	enableCS();
+	enableCS(0);
 }
 
 int main(int argc, char* argv[])
@@ -70,34 +75,14 @@ int main(int argc, char* argv[])
 	{
 		initSpi(WORD_SIZE_24BITS);
 		writeRegisterMcp23s08CsMan(0x00, 0x00);
-		/*
-		spiWriteRegister(OFS_BRD, 640);
-		spiWriteRegister(OFS_CONTROL, 0x8217);
 		
-		spiWriteRegister(OFS_CONTROL, 0x8017);
-		spiWriteData(0x400000);	
-		while(!(spiReadRegister(OFS_STATUS) & 0x20));	
-		spiWriteRegister(OFS_CONTROL, 0x8217);
-		*/
 		if(strcmp(argv[2], "on") == 0)
 		{
 			writeRegisterMcp23s08CsMan(0x09, strtol(argv[3], NULL, 16) & 0xFF);
-/*
-		spiWriteRegister(OFS_CONTROL, 0x8017);		
-		spiWriteData(0x4009ff);	
-		while(!(spiReadRegister(OFS_STATUS) & 0x20));	
-		spiWriteRegister(OFS_CONTROL, 0x8217);
-*/
 		}
 		else if(strcmp(argv[2], "off") == 0)
 		{
 			writeRegisterMcp23s08CsMan(0x09, 0x00);
-/*
-		spiWriteRegister(OFS_CONTROL, 0x8017);
-		spiWriteData(0x400900);	
-		while(!(spiReadRegister(OFS_STATUS) & 0x20));	
-		spiWriteRegister(OFS_CONTROL, 0x8217);
-*/
 		}
 	}
 

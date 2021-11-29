@@ -18,8 +18,7 @@ module spi
 	output reg [31:0] readdata;
 	
 	// SPI Interface
-	output reg tx, clk_out, baud_out, cs_0, cs_2, cs_3;
-	output wire cs_1;
+	output reg tx, clk_out, baud_out, cs_0, cs_1, cs_2, cs_3;
 	input rx;
 	
 	output wire [9:0] LEDR;
@@ -148,6 +147,11 @@ module spi
 		.wp_debug_out(wp)
 	);
 	
+	/*
+		There is a major problem with the chipselect. For some reason, after chipselect goes low,
+		it takes a few clock cycles for the baud rate generator to be intialized.
+	*/
+	
 	// Serializer
 	parameter IDLE    	= 2'b00;
 	parameter TX_RX   	= 2'b01;
@@ -161,31 +165,58 @@ module spi
 	// If in manual CS mode, the SPI Chipselect is going to be
 	// controlled by CSy_Enable. For now, let's just assume that
 	// we have only 1 chipselect.
-	assign cs_auto = control[5];
+	assign cs_auto = control[8:5];
+	assign cs_enable = control[12:9];
+	assign cs_select = control[14:13];
 	
+	reg cs;
 	// Controls chipselect
 	// Initialization steps
 	// 1. Write 1 to bit 9 of the control register
 	// 2. Enable the tx/rx/brd by setting bit 15
 	always @ (posedge clk)
 		if(reset || !enable)
+		begin
 			// By default, when the tx/rx/brd is not enabled, CS idle's high.
 			cs_0 <= 1'b1;
+			cs_1 <= 1'b1;
+			cs_2 <= 1'b1;
+			cs_3 <= 1'b1;
+		end
 			// This state is only entered when CS is auto as defined by the state machine.
 			// Pull CS Low by going into the CS Assert state.
 		else
-			if(cs_auto)
+			// If it is not CS auto, it has to be manual
+			if(cs_auto != 4'b0)
 			begin
 				if(serializer_state == CS_ASSERT)
-					cs_0 <= 1'b0;
+					case({ cs_select, cs_auto })
+						6'b000001: cs_0 <= 1'b0;
+						6'b010010: cs_1 <= 1'b0;
+						6'b100100: cs_2 <= 1'b0;
+						6'b111000: cs_3 <= 1'b0;
+					endcase
+					// cs <= 1'b0;
 				// If CS is auto and we are in the TX_RX state and bcount is 0, pull CS High.
-				// This ensures CS is pull high as soon as we go back to the IDLE state.
+				// This ensures CS is pulled high as soon as we go back to the IDLE state.
 				else if(serializer_state == TX_RX && bcount == 0)
-					cs_0 <= 1'b1;
+					case({ cs_select, cs_auto })
+						6'b000001: cs_0 <= 1'b1;
+						6'b010010: cs_1 <= 1'b1;
+						6'b100100: cs_2 <= 1'b1;
+						6'b111000: cs_3 <= 1'b1;
+					endcase
+					// cs <= 1'b1;
 			end
 			// Otherwise, CS is controlled by the user.
 			else
-				cs_0 <= control[9];
+				begin
+					cs_0 <= control[9];
+					cs_1 <= control[10];
+					cs_2 <= control[11];
+					cs_3 <= control[12];
+				end
+				// cs <= control[9];
 	
 	wire [5:0] bcount;
 	
@@ -209,8 +240,6 @@ module spi
 		.pulse_out(baud_out_negative_edge),
 		.positive_edge(1'b0)
 	);
-	
-	assign cs = cs_0;
 	
 	// Controls the serializer state
 	always @ (posedge clk)
@@ -253,7 +282,8 @@ module spi
 			tx <= 1'b0;
 	end
 
-	// The baud_out always has to idle either high or low
+	// The baud_out always has to idle either high or low.
+	// If we are in the idle state, idle baud_out to either high or low
 	// Baud rate generator
 	reg [31:0] count;
 	reg [31:0] match;
