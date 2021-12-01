@@ -66,6 +66,20 @@ void disableCS(uint8_t n)
 	spiWriteRegister(OFS_CONTROL, cs & ~(0x200 << n));
 }
 
+void csSelect(uint32_t n)
+{
+	if(n > 3)
+		return;
+	uint32_t cs = spiReadRegister(OFS_CONTROL) & ~(0x00006000);
+	spiWriteRegister(OFS_CONTROL, cs | (n << 13));
+}
+
+void clearCsSelect()
+{
+	uint32_t cs = spiReadRegister(OFS_CONTROL) & ~(0x00006000);
+	spiWriteRegister(OFS_CONTROL, cs);
+}
+
 void enableSpi()
 {
 	*(base + OFS_CONTROL) |= 0x00008000;

@@ -18,7 +18,8 @@ module spi
 	output reg [31:0] readdata;
 	
 	// SPI Interface
-	output reg tx, clk_out, baud_out, cs_0, cs_1, cs_2, cs_3;
+	output reg tx, clk_out, baud_out;
+	output wire cs_0, cs_1, cs_2, cs_3;
 	input rx;
 	
 	output wire [9:0] LEDR;
@@ -47,7 +48,7 @@ module spi
 				STATUS_REG:
 					// rp and wp are the read and write pointers
 					// These are only here for the purposes of debugging
-					readdata = { bcount, rp, wp, 2'b00, txfe, txff, txfo, rxfe, rxff, rxfo };
+					readdata = { cs_auto, rp, wp, 2'b00, txfe, txff, txfo, rxfe, rxff, rxfo };
 				CONTROL_REG:
 					readdata = control;
 				BRD_REG:
@@ -159,17 +160,74 @@ module spi
 	
 	reg [1:0] serializer_state;
 	
-	// Debug output
-	assign LEDR[9:8] = serializer_state;
-	
 	// If in manual CS mode, the SPI Chipselect is going to be
 	// controlled by CSy_Enable. For now, let's just assume that
 	// we have only 1 chipselect.
+	
+	assign cs_0_enable = control[9];
+	assign cs_1_enable = control[10];
+	assign cs_2_enable = control[11];
+	assign cs_3_enable = control[12];
+	
+	wire [3:0] cs_auto;
+	wire [3:0] cs_enable;
+	
 	assign cs_auto = control[8:5];
 	assign cs_enable = control[12:9];
-	assign cs_select = control[14:13];
 	
-	reg cs;
+	chipselect_select chipselect_0
+	(
+		.clk(clk),
+		.reset(reset),
+		.enable(enable),
+		.cs_auto(cs_auto[0]),
+		.cs_enable(cs_0_enable),
+		.cs_pull_low((serializer_state == CS_ASSERT)),
+		.cs_pull_high((serializer_state == TX_RX) && (bcount == 0)),
+		.select(control[14:13] == 2'b00),
+		.cs(cs_0)
+	);
+	
+	chipselect_select chipselect_1
+	(
+		.clk(clk),
+		.reset(reset),
+		.enable(enable),
+		.cs_auto(cs_auto[1]),
+		.cs_enable(cs_1_enable),
+		.cs_pull_low((serializer_state == CS_ASSERT)),
+		.cs_pull_high((serializer_state == TX_RX) && (bcount == 0)),
+		.select(control[14:13] == 2'b01),
+		.cs(cs_1)
+	);
+	
+	chipselect_select chipselect_2
+	(
+		.clk(clk),
+		.reset(reset),
+		.enable(enable),
+		.cs_auto(cs_auto[2]),
+		.cs_enable(cs_2_enable),
+		.cs_pull_low((serializer_state == CS_ASSERT)),
+		.cs_pull_high((serializer_state == TX_RX) && (bcount == 0)),
+		.select(control[14:13] == 2'b10),
+		.cs(cs_2)
+	);
+	
+	chipselect_select chipselect_3
+	(
+		.clk(clk),
+		.reset(reset),
+		.enable(enable),
+		.cs_auto(cs_auto[3]),
+		.cs_enable(cs_3_enable),
+		.cs_pull_low((serializer_state == CS_ASSERT)),
+		.cs_pull_high((serializer_state == TX_RX) && (bcount == 0)),
+		.select(control[14:13] == 2'b11),
+		.cs(cs_3)
+	);
+
+	/*
 	// Controls chipselect
 	// Initialization steps
 	// 1. Write 1 to bit 9 of the control register
@@ -206,7 +264,6 @@ module spi
 						6'b100100: cs_2 <= 1'b1;
 						6'b111000: cs_3 <= 1'b1;
 					endcase
-					// cs <= 1'b1;
 			end
 			// Otherwise, CS is controlled by the user.
 			else
@@ -216,8 +273,7 @@ module spi
 					cs_2 <= control[11];
 					cs_3 <= control[12];
 				end
-				// cs <= control[9];
-	
+	*/
 	wire [5:0] bcount;
 	
 	counter serializer_counter
@@ -255,14 +311,14 @@ module spi
 				serializer_state <= IDLE;
 			// If CS Auto is selected, if in IDLE, go to the Assert state.
 			// If in assert, go to the TX_RX state
-			else if(!txfe && cs_auto)
+			else if(!txfe && (cs_auto != 0))
 			begin
 				if(serializer_state == IDLE)
 					serializer_state <= CS_ASSERT;
 				else
 					serializer_state <= TX_RX;
 			end
-			else if(!txfe && !cs_auto)
+			else if(!txfe && (cs_auto == 0))
 				serializer_state <= TX_RX;
 		end
 	end
