@@ -18,8 +18,8 @@ module spi
 	output reg [31:0] readdata;
 	
 	// SPI Interface
-	output reg tx, clk_out, baud_out;
-	output wire cs_0, cs_1, cs_2, cs_3;
+	output reg clk_out;
+	output wire tx, baud_out, cs_0, cs_1, cs_2, cs_3;
 	input rx;
 	
 	output wire [9:0] LEDR;
@@ -31,12 +31,13 @@ module spi
 	parameter BRD_REG			= 2'b11;
 	
 	// Internal registers
+	reg [31:0] latch_data;
 	reg [31:0] control;
 	reg [31:0] brd;
 	reg [31:0] clear_status_flag_request;
 	
 	// Only output the clock of the baud rate generator if bit 15 of the control register is set
-	assign enable = (control & 32'h00008000) ? 1'b1 : 1'b0;
+	assign enable = control[15];
 	
 	// Read block
 	always @ (*)
@@ -44,7 +45,7 @@ module spi
 		if(read && chipselect)
 			case(address)
 				DATA_REG:
-					readdata = tx_fifo_data_out;
+					readdata = tmp;
 				STATUS_REG:
 					// rp and wp are the read and write pointers
 					// These are only here for the purposes of debugging
@@ -124,7 +125,7 @@ module spi
 	
 	// RX Fifo Overflow, Full, Empty; TX Fifo Overflow, Full, Empty
 	wire txfe, txff, txfo, rxfe, rxff, rxfo;
-	wire [31:0] tx_fifo_data_out;
+	wire [31:0] tx_fifo_data_out, rx_fifo_data_out;
 	wire [3:0] rp, wp;
 	
 	// Debug outputs
@@ -143,10 +144,32 @@ module spi
 		.chipselect(chipselect || serializer_read_pulse),
 		.read(serializer_read_pulse),
 		.write(one_pulse_write_output && (address == DATA_REG)),
-		.ov_clear(clear_status_flag_request[3]),
+		.ov_clear(clear_status_flag_request[3])
+	);
+	
+	fifo #(.N(16), .M(32)) rx_fifo
+	(
+		.data_out(rx_fifo_data_out),
+		.fe(rxfe),
+		.ff(rxff),
+		.fo(rxfo),
+		.data_in(latch_data),
+		.clk(clk),
+		.reset(reset),
+		.chipselect(chipselect || serializer_read_pulse),
+		.read(one_pulse_read_output && (address == DATA_REG)),
+		.write(serializer_read_pulse),
+		.ov_clear(clear_status_flag_request[0]),
 		.rp_debug_out(rp),
 		.wp_debug_out(wp)
 	);
+	
+	reg [31:0] tmp;
+	always @ (posedge clk)
+	begin
+		if(chipselect && read && (address == DATA_REG))
+			tmp <= rx_fifo_data_out;
+	end
 	
 	/*
 		There is a major problem with the chipselect. For some reason, after chipselect goes low,
@@ -164,11 +187,6 @@ module spi
 	// controlled by CSy_Enable. For now, let's just assume that
 	// we have only 1 chipselect.
 	
-	assign cs_0_enable = control[9];
-	assign cs_1_enable = control[10];
-	assign cs_2_enable = control[11];
-	assign cs_3_enable = control[12];
-	
 	wire [3:0] cs_auto;
 	wire [3:0] cs_enable;
 	
@@ -181,7 +199,7 @@ module spi
 		.reset(reset),
 		.enable(enable),
 		.cs_auto(cs_auto[0]),
-		.cs_enable(cs_0_enable),
+		.cs_enable(cs_enable[0]),
 		.cs_pull_low((serializer_state == CS_ASSERT)),
 		.cs_pull_high((serializer_state == TX_RX) && (bcount == 0)),
 		.select(control[14:13] == 2'b00),
@@ -194,7 +212,7 @@ module spi
 		.reset(reset),
 		.enable(enable),
 		.cs_auto(cs_auto[1]),
-		.cs_enable(cs_1_enable),
+		.cs_enable(cs_enable[1]),
 		.cs_pull_low((serializer_state == CS_ASSERT)),
 		.cs_pull_high((serializer_state == TX_RX) && (bcount == 0)),
 		.select(control[14:13] == 2'b01),
@@ -207,7 +225,7 @@ module spi
 		.reset(reset),
 		.enable(enable),
 		.cs_auto(cs_auto[2]),
-		.cs_enable(cs_2_enable),
+		.cs_enable(cs_enable[2]),
 		.cs_pull_low((serializer_state == CS_ASSERT)),
 		.cs_pull_high((serializer_state == TX_RX) && (bcount == 0)),
 		.select(control[14:13] == 2'b10),
@@ -220,62 +238,14 @@ module spi
 		.reset(reset),
 		.enable(enable),
 		.cs_auto(cs_auto[3]),
-		.cs_enable(cs_3_enable),
+		.cs_enable(cs_enable[3]),
 		.cs_pull_low((serializer_state == CS_ASSERT)),
 		.cs_pull_high((serializer_state == TX_RX) && (bcount == 0)),
 		.select(control[14:13] == 2'b11),
 		.cs(cs_3)
 	);
-
-	/*
-	// Controls chipselect
-	// Initialization steps
-	// 1. Write 1 to bit 9 of the control register
-	// 2. Enable the tx/rx/brd by setting bit 15
-	always @ (posedge clk)
-		if(reset || !enable)
-		begin
-			// By default, when the tx/rx/brd is not enabled, CS idle's high.
-			cs_0 <= 1'b1;
-			cs_1 <= 1'b1;
-			cs_2 <= 1'b1;
-			cs_3 <= 1'b1;
-		end
-			// This state is only entered when CS is auto as defined by the state machine.
-			// Pull CS Low by going into the CS Assert state.
-		else
-			// If it is not CS auto, it has to be manual
-			if(cs_auto != 4'b0)
-			begin
-				if(serializer_state == CS_ASSERT)
-					case({ cs_select, cs_auto })
-						6'b000001: cs_0 <= 1'b0;
-						6'b010010: cs_1 <= 1'b0;
-						6'b100100: cs_2 <= 1'b0;
-						6'b111000: cs_3 <= 1'b0;
-					endcase
-					// cs <= 1'b0;
-				// If CS is auto and we are in the TX_RX state and bcount is 0, pull CS High.
-				// This ensures CS is pulled high as soon as we go back to the IDLE state.
-				else if(serializer_state == TX_RX && bcount == 0)
-					case({ cs_select, cs_auto })
-						6'b000001: cs_0 <= 1'b1;
-						6'b010010: cs_1 <= 1'b1;
-						6'b100100: cs_2 <= 1'b1;
-						6'b111000: cs_3 <= 1'b1;
-					endcase
-			end
-			// Otherwise, CS is controlled by the user.
-			else
-				begin
-					cs_0 <= control[9];
-					cs_1 <= control[10];
-					cs_2 <= control[11];
-					cs_3 <= control[12];
-				end
-	*/
-	wire [5:0] bcount;
 	
+	wire [5:0] bcount;
 	counter serializer_counter
 	(
 		.clk(clk),
@@ -286,15 +256,33 @@ module spi
 		.bcount(bcount)
 	);
 	
-	wire baud_out_negative_edge;
+	reg spo, sph;
+	// Polarity, Phase selector
+	always @ (*)
+	begin
+		case(control[14:13])
+			2'b00: begin spo = control[16]; sph = control[17]; end
+			2'b01: begin spo = control[18]; sph = control[19]; end
+			2'b10: begin spo = control[20]; sph = control[21]; end
+			2'b11: begin spo = control[22]; sph = control[23]; end
+		endcase
+	end
 	
+	assign baud_out = internal_baud_out ^ spo ^ sph;
+	assign baud_out_idle_level = !(spo == 1'b0);
+	
+	wire baud_out_negative_edge;
 	edge_detect baud_negative_edge
 	(
 		.clk(clk),
 		.reset(reset),
 		.signal_in(baud_out),
 		.pulse_out(baud_out_negative_edge),
-		.positive_edge(1'b0)
+		
+		// Phase xor'ed with Polarity if 0,0 and 1,1 produces zero.
+		// That indicates we want to decrement the count on the negative edge.
+		// Otherwise, decrement on the posedge.
+		.positive_edge((spo ^ sph))
 	);
 	
 	// Controls the serializer state
@@ -324,18 +312,26 @@ module spi
 	end
 	
 	assign load = (serializer_state == IDLE);
+	// This decrement will always happen on the first negative edge. That causes a problem as the
+	// count is decremented/incremented first and then data is transmitted. What I really want is for the first
+	// bit to be sent and then decrement/increment the count.
 	assign decrement = ((serializer_state == TX_RX) && baud_out_negative_edge);
 	// The bcount should be compared against 0 because we want to go to the next
 	// read value after the last bit from the data word is sent
 	assign serializer_read_pulse = ((serializer_state == TX_RX) && bcount == 0);
+	assign tx = internal_tx;
 	
+	reg internal_tx;
 	// This block will not run until the baud rate generator is enabled
-	always @ (posedge baud_out)
+	always @ (baud_out)
 	begin
-		if(serializer_state == TX_RX && bcount > 0)
-			tx <= tx_fifo_data_out[bcount - 1'b1];
+		if(((baud_out && !(spo ^ sph)) || (!baud_out && (spo ^ sph))) && serializer_state == TX_RX && bcount > 0)
+		begin
+			internal_tx <= tx_fifo_data_out[bcount - 1'b1];
+			latch_data[bcount - 1'b1] <= rx;
+		end
 		else
-			tx <= 1'b0;
+			internal_tx <= 1'b0;
 	end
 
 	// The baud_out always has to idle either high or low.
@@ -343,13 +339,15 @@ module spi
 	// Baud rate generator
 	reg [31:0] count;
 	reg [31:0] match;
+	reg internal_baud_out;
 	
 	always @ (posedge clk)
 	begin
 		if(reset || !enable || (serializer_state == IDLE))
 		begin
 			clk_out <= 1'b0;
-			baud_out <= 1'b0;
+			// This should be passed in as a parameter
+			internal_baud_out <= baud_out_idle_level;
 			count <= 32'b0;
 			match <= brd;
 		end
@@ -362,7 +360,7 @@ module spi
 			if(count[31:7] == match[31:7])
 			begin
 				match <= match + brd;
-				baud_out <= !baud_out;
+				internal_baud_out <= !internal_baud_out;
 			end
 		end
 	end

@@ -25,6 +25,6 @@ module chipselect_select
 			end
 			// If it is not CS auto, it has to be manual.
 			// CS is controlled by the user.
-			else
+			else if(select)
 				cs <= cs_enable;
 endmodule

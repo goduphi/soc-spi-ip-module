@@ -71,7 +71,7 @@ void csSelect(uint32_t n)
 	if(n > 3)
 		return;
 	uint32_t cs = spiReadRegister(OFS_CONTROL) & ~(0x00006000);
-	spiWriteRegister(OFS_CONTROL, cs | (n << 13));
+	spiWriteRegister(OFS_CONTROL, cs | (n << CS_SELECT_OFFSET));
 }
 
 void clearCsSelect()
@@ -88,7 +88,15 @@ void enableSpi()
 void disableSpi()
 {
 	*(base + OFS_CONTROL) &= ~0x00008000;
-} 
+}
+
+void spiSetMode(uint8_t n, uint32_t spo_sph)
+{
+	if (n > 3 || spo_sph > 3)
+		return;
+	uint32_t mode = spiReadRegister(OFS_CONTROL) & ~(SPI_MODE_MASK << (SPI_MODE_OFFSET + (n << 1)));
+	spiWriteRegister(OFS_CONTROL, mode | (spo_sph << (SPI_MODE_OFFSET + (n << 1))));
+}
 
 // The cycle is fixed to 50 MHz
 void setBaudRateSpi(uint32_t baudRate)
