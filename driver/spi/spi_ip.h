@@ -35,3 +35,4 @@ void csSelect(uint32_t n);
 void enableSpi();
 void disableSpi();
 void spiSetMode(uint8_t n, uint32_t spo_sph);
+void spiSetBaudRate(uint32_t baudRate);

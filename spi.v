@@ -164,6 +164,12 @@ module spi
 		.wp_debug_out(wp)
 	);
 	
+	// Data from the fifo is always available on data_out
+	// Since a read pulse would case the read ptr to be incremented,
+	// we will actually get the n + 1 th data instead of the nth data.
+	// To solve this, I added a temporary register which will be used to
+	// delay the data read by 1 clk cycle forcing readdata to display the nth
+	// data.
 	reg [31:0] tmp;
 	always @ (posedge clk)
 	begin
@@ -271,14 +277,13 @@ module spi
 	assign baud_out = internal_baud_out ^ spo ^ sph;
 	assign baud_out_idle_level = !(spo == 1'b0);
 	
-	wire baud_out_negative_edge;
-	edge_detect baud_negative_edge
+	wire baud_out_edge;
+	edge_detect baud_edge
 	(
 		.clk(clk),
 		.reset(reset),
 		.signal_in(baud_out),
-		.pulse_out(baud_out_negative_edge),
-		
+		.pulse_out(baud_out_edge),
 		// Phase xor'ed with Polarity if 0,0 and 1,1 produces zero.
 		// That indicates we want to decrement the count on the negative edge.
 		// Otherwise, decrement on the posedge.
@@ -315,7 +320,7 @@ module spi
 	// This decrement will always happen on the first negative edge. That causes a problem as the
 	// count is decremented/incremented first and then data is transmitted. What I really want is for the first
 	// bit to be sent and then decrement/increment the count.
-	assign decrement = ((serializer_state == TX_RX) && baud_out_negative_edge);
+	assign decrement = ((serializer_state == TX_RX) && baud_out_edge);
 	// The bcount should be compared against 0 because we want to go to the next
 	// read value after the last bit from the data word is sent
 	assign serializer_read_pulse = ((serializer_state == TX_RX) && bcount == 0);
@@ -325,7 +330,7 @@ module spi
 	// This block will not run until the baud rate generator is enabled
 	always @ (baud_out)
 	begin
-		if(((baud_out && !(spo ^ sph)) || (!baud_out && (spo ^ sph))) && serializer_state == TX_RX && bcount > 0)
+		if(((baud_out & !(spo ^ sph)) | (!baud_out & (spo ^ sph))) && serializer_state == TX_RX && bcount > 0)
 		begin
 			internal_tx <= tx_fifo_data_out[bcount - 1'b1];
 			latch_data[bcount - 1'b1] <= rx;

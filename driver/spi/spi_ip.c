@@ -99,7 +99,7 @@ void spiSetMode(uint8_t n, uint32_t spo_sph)
 }
 
 // The cycle is fixed to 50 MHz
-void setBaudRateSpi(uint32_t baudRate)
+void spiSetBaudRate(uint32_t baudRate)
 {
 	// Baud Rate = fcycle / divisor
 	uint32_t divisor = (50000000 / 2) / baudRate;

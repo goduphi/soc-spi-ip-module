@@ -21,7 +21,7 @@
 void initSpi(uint32_t control)
 {
 	// Set a baud rate of 5 MHz
-	spiWriteRegister(OFS_BRD, 640);
+	spiSetBaudRate(5e6);
 	spiWriteRegister(OFS_CONTROL, control);
 
 	if (!(control & CS0_AUTO))
@@ -36,6 +36,7 @@ void initSpi(uint32_t control)
 	enableSpi();
 }
 
+// This function makes use of auto CS
 void writeRegisterMcp23s08(uint8_t address, uint8_t data)
 {
 	uint32_t tmp = MCP23S08_ADDRESS;
@@ -64,16 +65,23 @@ void writeRegisterMcp23s08CsMan(uint8_t address, uint8_t data, uint8_t cs)
 	disableCS(cs);
 	spiWriteData(tmp);
 	while (!(spiReadRegister(OFS_STATUS) & 0x20));
+	spiReadData();
 	enableCS(cs);
 }
 
 void help(const char* programName)
 {
-	printf("./%s\n", programName);
+	printf("%s stop_go [mode]\n", programName);
 }
 
 int main(int argc, char* argv[])
 {
+	if (argc == 2 && strcmp(argv[1], "help") == 0)
+	{
+		help(argv[0]);
+		return EXIT_FAILURE;
+	}
+
 	if (!openSpi())
 	{
 		printf("Error opening /dev/mem for SPI IP module @0x%8x\n", LW_BRIDGE_BASE, SPI_BASE_OFFSET);
@@ -82,23 +90,19 @@ int main(int argc, char* argv[])
 	else
 		printf("Mapped physical memory 0x%8x with %d bytes of span!\n", LW_BRIDGE_BASE + SPI_BASE_OFFSET, SPAN_IN_BYTES);
 
-	if (argc == 2 && strcmp(argv[1], "help") == 0)
-	{
-		help(argv[0]);
-		return EXIT_FAILURE;
-	}
-
 	if (argc == 6 && strcmp(argv[1], "cs_auto") == 0)
 	{
 		initSpi(CS0_AUTO | CS1_AUTO | CS2_AUTO | CS3_AUTO | WORD_SIZE_24BITS);
 
-		csSelect(atoi(argv[4]));
-		uint32_t mode = spiReadRegister(OFS_CONTROL);
-		mode &= ~(3 << 16);
-		mode |= atoi(argv[5]) << 16;
-		spiWriteRegister(OFS_CONTROL, mode);
+		uint32_t cs = atoi(argv[4]);
+		if (cs > 3)
+			cs = 0;
+		uint32_t mode = atoi(argv[5]);
+		if (mode > 3)
+			mode = 0;
 
-		printf("%x\n", spiReadRegister(OFS_CONTROL));
+		csSelect(cs);
+		spiSetMode(cs, mode);
 
 		writeRegisterMcp23s08(DIR_REG, ALL_OUTPUTS);
 
@@ -113,44 +117,51 @@ int main(int argc, char* argv[])
 			writeRegisterMcp23s08(DATA_REG, 0x00);
 		}
 	}
-	
-	if(argc == 2 && strcmp(argv[1], "stop_go") == 0)
+
+	if (argc == 6 && strcmp(argv[1], "cs_man") == 0)
+	{
+		initSpi(WORD_SIZE_24BITS);
+
+		uint32_t cs = atoi(argv[4]);
+		if (cs > 3)
+			cs = 0;
+		uint32_t mode = atoi(argv[5]);
+		if (mode > 3)
+			mode = 0;
+
+		csSelect(cs);
+		spiSetMode(cs, mode);
+		
+		writeRegisterMcp23s08CsMan(DIR_REG, ALL_OUTPUTS, cs);
+
+		if(strcmp(argv[2], "on") == 0)
+		{
+			writeRegisterMcp23s08CsMan(DATA_REG, strtol(argv[3], NULL, 16) & 0xFF, cs);
+		}
+		else if(strcmp(argv[2], "off") == 0)
+		{
+			writeRegisterMcp23s08CsMan(DATA_REG, 0x00, cs);
+		}
+	}
+
+	if (argc >= 2 && strcmp(argv[1], "stop_go") == 0)
 	{
 		initSpi(CS0_AUTO | CS1_AUTO | CS2_AUTO | CS3_AUTO | WORD_SIZE_24BITS);
+
+		uint32_t mode = (argc == 3) ? atoi(argv[2]) : 0;
+		mode = (mode > 3) ? 0 : mode;
+		printf("Running in mode %hhu, %hhu\n", (mode >> 1) & 1, mode & 1);
+
 		csSelect(0);
-		spiSetMode(0, 0);
+		spiSetMode(0, mode);
 		// Set pins 0 and 1 as outputs and the rest as inputs
 		// 0 represents an output and 1 an input
 		writeRegisterMcp23s08(GPPU_REG, 0xFF);
 		writeRegisterMcp23s08(DIR_REG, 0xF8);
 		writeRegisterMcp23s08(DATA_REG, 0x04);
 		printf("Press dat button!!!\n");
-		uint32_t val = readRegisterMcp23s08(DATA_REG);
 		while ((readRegisterMcp23s08(DATA_REG)) & 0x08);
 		writeRegisterMcp23s08(DATA_REG, 0x02);
-	}
-
-	if (argc >= 3 && strcmp(argv[1], "cs_man") == 0)
-	{
-		initSpi(WORD_SIZE_24BITS);
-
-		csSelect(atoi(argv[4]));
-		uint32_t oh = spiReadRegister(OFS_CONTROL);
-		oh &= ~(3 << 16);
-		oh |= atoi(argv[5]) << 16;
-		spiWriteRegister(OFS_CONTROL, oh);
-		
-		printf("Current control reg value = %x\n", spiReadRegister(OFS_CONTROL));
-		writeRegisterMcp23s08CsMan(0x00, 0x00, atoi(argv[4])); 
-
-		if(strcmp(argv[2], "on") == 0)
-		{
-			writeRegisterMcp23s08CsMan(0x09, strtol(argv[3], NULL, 16) & 0xFF, atoi(argv[4]));
-		}
-		else if(strcmp(argv[2], "off") == 0)
-		{
-			writeRegisterMcp23s08CsMan(0x09, 0x00, atoi(argv[4]));
-		}
 	}
 
 	disableSpi();
