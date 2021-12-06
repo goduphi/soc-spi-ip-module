@@ -1,4 +1,4 @@
-obj-m += spi_driver.o
+obj-m += mcp23s08_driver.o
 
 DIR=/lib/modules/$(shell uname -r)/build
 
