@@ -203,7 +203,8 @@ static ssize_t direction0Store(struct kobject* kobj, struct kobj_attribute* attr
 
 static ssize_t direction0Show(struct kobject* kobj, struct kobj_attribute* attr, char* buffer)
 {
-	return sprintf(buffer, "%hhx\n", dir_0);
+	dir_0 = readRegisterMcp23s08(DIR_REG);
+	return sprintf(buffer, "%hhx\n", (dir_0 & 1) ? 1 : 0);
 }
 
 static struct kobj_attribute dir0Attr = __ATTR(dir, 0664, direction0Show, direction0Store);
@@ -231,7 +232,8 @@ static ssize_t data0Store(struct kobject* kobj, struct kobj_attribute* attr, con
 
 static ssize_t data0Show(struct kobject* kobj, struct kobj_attribute* attr, char* buffer)
 {
-	return sprintf(buffer, "%hhx\n", data_0);
+	data_0 = readRegisterMcp23s08(DATA_REG);
+	return sprintf(buffer, "%hhx\n", (data_0 & 1) ? 1 : 0);
 }
 
 static struct kobj_attribute data0Attr = __ATTR(data, 0664, data0Show, data0Store);
@@ -259,7 +261,8 @@ static ssize_t pullup0Store(struct kobject* kobj, struct kobj_attribute* attr, c
 
 static ssize_t pullup0Show(struct kobject* kobj, struct kobj_attribute* attr, char* buffer)
 {
-	return sprintf(buffer, "%hhx\n", pullup_0);
+	pullup_0 = readRegisterMcp23s08(GPPU_REG);
+	return sprintf(buffer, "%hhx\n", (pullup_0 & 1) ? 1 : 0);
 }
 
 static struct kobj_attribute pullup0Attr = __ATTR(pullup, 0664, pullup0Show, pullup0Store);
@@ -288,7 +291,8 @@ static ssize_t direction1Store(struct kobject* kobj, struct kobj_attribute* attr
 
 static ssize_t direction1Show(struct kobject* kobj, struct kobj_attribute* attr, char* buffer)
 {
-	return sprintf(buffer, "%hhx\n", dir_1);
+	dir_1 = readRegisterMcp23s08(DIR_REG);
+	return sprintf(buffer, "%hhx\n", (dir_1 & 2) ? 1 : 0);
 }
 
 static struct kobj_attribute dir1Attr = __ATTR(dir, 0664, direction1Show, direction1Store);
@@ -316,7 +320,8 @@ static ssize_t data1Store(struct kobject* kobj, struct kobj_attribute* attr, con
 
 static ssize_t data1Show(struct kobject* kobj, struct kobj_attribute* attr, char* buffer)
 {
-	return sprintf(buffer, "%hhx\n", data_1);
+	data_1 = readRegisterMcp23s08(DATA_REG);
+	return sprintf(buffer, "%hhx\n", (data_1 & 2) ? 1 : 0);
 }
 
 static struct kobj_attribute data1Attr = __ATTR(data, 0664, data1Show, data1Store);
@@ -344,7 +349,8 @@ static ssize_t pullup1Store(struct kobject* kobj, struct kobj_attribute* attr, c
 
 static ssize_t pullup1Show(struct kobject* kobj, struct kobj_attribute* attr, char* buffer)
 {
-	return sprintf(buffer, "%hhx\n", pullup_1);
+	pullup_1 = readRegisterMcp23s08(GPPU_REG);
+	return sprintf(buffer, "%hhx\n", (pullup_1 & 2) ? 1 : 0);
 }
 
 static struct kobj_attribute pullup1Attr = __ATTR(pullup, 0664, pullup1Show, pullup1Store);
@@ -373,7 +379,8 @@ static ssize_t direction2Store(struct kobject* kobj, struct kobj_attribute* attr
 
 static ssize_t direction2Show(struct kobject* kobj, struct kobj_attribute* attr, char* buffer)
 {
-	return sprintf(buffer, "%hhx\n", dir_2);
+	dir_2 = readRegisterMcp23s08(DIR_REG);
+	return sprintf(buffer, "%hhx\n", (dir_2 & 4) ? 1 : 0);
 }
 
 static struct kobj_attribute dir2Attr = __ATTR(dir, 0664, direction2Show, direction2Store);
@@ -401,7 +408,8 @@ static ssize_t data2Store(struct kobject* kobj, struct kobj_attribute* attr, con
 
 static ssize_t data2Show(struct kobject* kobj, struct kobj_attribute* attr, char* buffer)
 {
-	return sprintf(buffer, "%hhx\n", data_2);
+	data_2 = readRegisterMcp23s08(DATA_REG);
+	return sprintf(buffer, "%hhx\n", (data_2 & 4) ? 1 : 0);
 }
 
 static struct kobj_attribute data2Attr = __ATTR(data, 0664, data2Show, data2Store);
@@ -429,7 +437,8 @@ static ssize_t pullup2Store(struct kobject* kobj, struct kobj_attribute* attr, c
 
 static ssize_t pullup2Show(struct kobject* kobj, struct kobj_attribute* attr, char* buffer)
 {
-	return sprintf(buffer, "%hhx\n", pullup_2);
+	pullup_2 = readRegisterMcp23s08(GPPU_REG);
+	return sprintf(buffer, "%hhx\n", (pullup_2 & 4) ? 1 : 0);
 }
 
 static struct kobj_attribute pullup2Attr = __ATTR(pullup, 0664, pullup2Show, pullup2Store);
